@@ -2,15 +2,23 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
-func check_requirements() string {
+type cmdDetails struct {
+	Profile string
+	Account int
+	Results string
+}
+
+func checkRequirements() string {
 	_, err := exec.LookPath("aws")
 	if err != nil {
 		log.Fatal("AWS CLI not found - We still need for this to be installed.")
@@ -50,30 +58,43 @@ func getProfileNames(profileRegex string) []string {
 	return validProfiles
 }
 
-func run_command(s string) cmdOut bytes.Buffer {
-	statement := append([]string{"--profile", s}, os.Args[1:]...)
+func runCommand(profile string, command []string) string {
+	statement := append([]string{"--profile", profile}, command...)
 	cmd := exec.Command("aws", statement...)
+
 	var cmdOut bytes.Buffer
 	cmd.Stdout = &cmdOut
 	cmd.Stderr = os.Stderr
+
 	err := cmd.Run()
 	if err != nil {
 		log.Fatalf("cmd.Run() failed with %s\n", err)
 	}
-	// return cmdOut
-	fmt.Printf("%s out:%s\n", s, cmdOut.String())
+	cmdOutString := cmdOut.String()
+	return cmdOutString
 }
 
 func main() {
 	// Ensure that required content is there
-	profileRegex := check_requirements()
+	profileRegex := checkRequirements()
 
 	// Get profiles based on AWS_ALL_PROFILES regex value
 	validProfiles := getProfileNames(profileRegex)
 
-	// Run command against each profile - seriel form for initial testing
+	// Run command against each profile - seriel for initial testing
+	results := []cmdDetails{}
 	for _, profile := range validProfiles {
-		run_command(profile)
+		var cmdDetails cmdDetails
+		cmdDetails.Profile = profile
+		accountQuery := []string{"sts", "get-caller-identity", "--query", "Account", "--output", "text"}
+		cmdDetails.Account, _ = strconv.Atoi(strings.Replace(runCommand(profile, accountQuery), "\n", "", -1))
+		cmdDetails.Results = runCommand(profile, os.Args[1:])
+		results = append(results, cmdDetails)
 	}
+	output, err := json.Marshal(&results)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(output))
 	fmt.Println("It's done!")
 }
