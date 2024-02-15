@@ -2,20 +2,20 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
 type cmdDetails struct {
 	Profile string
 	Account int
+	Command []string
 	Results string
+	Error   error
 }
 
 func checkRequirements() string {
@@ -58,7 +58,16 @@ func getProfileNames(profileRegex string) []string {
 	return validProfiles
 }
 
-func runCommand(profile string, command []string) string {
+func worker(command <-chan []string, jobs_chan <-chan string, results_chan chan<- string, errors_chan chan<- error) {
+	// for job := range jobs_chan {
+	// 	// response, err := runCommand(command.Profile, command.Command)
+	// 	// fmt.Println(response)
+	// 	// fmt.Println(err)
+	// 	fmt.Println(job)
+	// }
+}
+
+func runCommand(profile string, command []string) (string, error) {
 	statement := append([]string{"--profile", profile}, command...)
 	cmd := exec.Command("aws", statement...)
 
@@ -68,10 +77,10 @@ func runCommand(profile string, command []string) string {
 
 	err := cmd.Run()
 	if err != nil {
-		log.Fatalf("cmd.Run() failed with %s\n", err)
+		return "", err
 	}
 	cmdOutString := cmdOut.String()
-	return cmdOutString
+	return cmdOutString, nil
 }
 
 func main() {
@@ -81,20 +90,41 @@ func main() {
 	// Get profiles based on AWS_ALL_PROFILES regex value
 	validProfiles := getProfileNames(profileRegex)
 
+	// Create Working Groups for jobs and their results
+	jobs_chan := make(chan string, len(validProfiles))
+	results_chan := make(chan string, len(validProfiles))
+	errors_chan := make(chan string, len(validProfiles))
+
+	// Add to Worker Pools
+	poolCap := 10
+	for w := 1; w <= poolCap; w++ {
+		go worker(os.Args[1:], jobs_chan, results_chan, errors_chan)
+	}
+
+	// cmdDetails = []string{"sts", "get-caller-identity", "--query", "Account", "--output", "text"}
+	// for w := 1; w <= poolCap; w++ {
+	// 	go worker()
+	// }
+
 	// Run command against each profile - seriel for initial testing
-	results := []cmdDetails{}
-	for _, profile := range validProfiles {
-		var cmdDetails cmdDetails
-		cmdDetails.Profile = profile
-		accountQuery := []string{"sts", "get-caller-identity", "--query", "Account", "--output", "text"}
-		cmdDetails.Account, _ = strconv.Atoi(strings.Replace(runCommand(profile, accountQuery), "\n", "", -1))
-		cmdDetails.Results = runCommand(profile, os.Args[1:])
-		results = append(results, cmdDetails)
-	}
-	output, err := json.Marshal(&results)
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(string(output))
+	// results := []cmdDetails{}
+	// for _, profile := range validProfiles {
+	// 	var cmdDetails cmdDetails
+	// 	cmdDetails.Profile = profile
+	// 	accountQuery := []string{"sts", "get-caller-identity", "--query", "Account", "--output", "text"}
+	// 	accountDetails, error := runCommand(profile, accountQuery)
+	// 	if error != nil {
+
+	// 	}
+
+	// 	cmdDetails.Account, _ = strconv.Atoi(strings.Replace(accountDetails, "\n", "", -1))
+	// 	cmdDetails.Results, error = runCommand(profile, os.Args[1:])
+	// 	results = append(results, cmdDetails)
+	// }
+	// output, err := json.Marshal(&results)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// fmt.Println(string(output))
 	fmt.Println("It's done!")
 }
