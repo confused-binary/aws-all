@@ -30,7 +30,7 @@ func checkRequirements() string {
 	}
 
 	profileRegex, present := os.LookupEnv("AWS_ALL_PROFILES")
-	if present == false {
+	if !present {
 		log.Fatal("\"AWS_ALL_PROFILES\" environment variable needs to be set so I know which profiles to run against")
 	}
 
@@ -43,28 +43,31 @@ func getProfileNames(profileRegex string) []string {
 		log.Panicf("%v", err)
 	}
 
-	ds := strings.FieldsFunc(string(result), func(r rune) bool {
+	profiles := strings.FieldsFunc(string(result), func(r rune) bool {
 		return r == '\n'
 	})
 
 	var validProfiles []string
-	for _, d := range ds {
-		match, _ := regexp.MatchString(profileRegex, d)
-		if match == true {
-			validProfiles = append(validProfiles, d)
+	for _, profile := range profiles {
+		match, err := regexp.MatchString(profileRegex, profile)
+		if err != nil {
+			println(err)
+		}
+		if match {
+			validProfiles = append(validProfiles, profile)
 		}
 	}
 
 	return validProfiles
 }
 
-func worker(command <-chan []string, jobs_chan <-chan string, results_chan chan<- string, errors_chan chan<- error) {
-	// for job := range jobs_chan {
-	// 	// response, err := runCommand(command.Profile, command.Command)
-	// 	// fmt.Println(response)
-	// 	// fmt.Println(err)
-	// 	fmt.Println(job)
-	// }
+func worker(profile string, command []string, results chan<- string) {
+	cmdOutString, err := runCommand(profile, command)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(cmdOutString)
+	results <- cmdOutString
 }
 
 func runCommand(profile string, command []string) (string, error) {
@@ -90,41 +93,21 @@ func main() {
 	// Get profiles based on AWS_ALL_PROFILES regex value
 	validProfiles := getProfileNames(profileRegex)
 
-	// Create Working Groups for jobs and their results
-	jobs_chan := make(chan string, len(validProfiles))
-	results_chan := make(chan string, len(validProfiles))
-	errors_chan := make(chan string, len(validProfiles))
+	// Combine arguments to single string with spacces
+	argCommand := os.Args[1:]
 
-	// Add to Worker Pools
-	poolCap := 10
-	for w := 1; w <= poolCap; w++ {
-		go worker(os.Args[1:], jobs_chan, results_chan, errors_chan)
+	// Setup channels for concurrency
+	results := make(chan string, len(validProfiles))
+
+	// Pass commands to worker funciton
+	for _, profile := range validProfiles {
+		go worker(profile, argCommand, results)
 	}
 
-	// cmdDetails = []string{"sts", "get-caller-identity", "--query", "Account", "--output", "text"}
-	// for w := 1; w <= poolCap; w++ {
-	// 	go worker()
-	// }
+	// Print results
+	for i := 1; i <= len(validProfiles); i++ {
+		<-results
+	}
 
-	// Run command against each profile - seriel for initial testing
-	// results := []cmdDetails{}
-	// for _, profile := range validProfiles {
-	// 	var cmdDetails cmdDetails
-	// 	cmdDetails.Profile = profile
-	// 	accountQuery := []string{"sts", "get-caller-identity", "--query", "Account", "--output", "text"}
-	// 	accountDetails, error := runCommand(profile, accountQuery)
-	// 	if error != nil {
-
-	// 	}
-
-	// 	cmdDetails.Account, _ = strconv.Atoi(strings.Replace(accountDetails, "\n", "", -1))
-	// 	cmdDetails.Results, error = runCommand(profile, os.Args[1:])
-	// 	results = append(results, cmdDetails)
-	// }
-	// output, err := json.Marshal(&results)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// fmt.Println(string(output))
 	fmt.Println("It's done!")
 }
