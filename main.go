@@ -8,15 +8,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 )
-
-type cmdDetails struct {
-	Profile string
-	Account int
-	Command []string
-	Results string
-	Error   error
-}
 
 func checkRequirements() string {
 	_, err := exec.LookPath("aws")
@@ -96,15 +89,29 @@ func main() {
 	// Combine arguments to single string with spacces
 	argCommand := os.Args[1:]
 
+	// Setup waitgroups
+	var wg sync.WaitGroup
+
 	// Setup channels for concurrency
 	results := make(chan string, len(validProfiles))
 
 	// Pass commands to worker funciton
-	for _, profile := range validProfiles {
-		go worker(profile, argCommand, results)
+	for n, profile := range validProfiles {
+		wg.Add(n)
+		profile := profile
+		go func() {
+			defer wg.Done()
+			worker(profile, argCommand, results)
+		}()
 	}
+	wg.Wait()
 
-	// Print results
+	// Get results
+	// data = make(map[string]string)
+	// for _, profile := range validProfiles {
+	// 	profile := profile
+	// 	data[profile] = <-results
+	// }
 	for i := 1; i <= len(validProfiles); i++ {
 		<-results
 	}
