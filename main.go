@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -66,30 +67,24 @@ func getProfileNames(profileRegex string) []string {
 	return validProfiles
 }
 
-// func worker(profile string, command []string, results chan<- string) {
-// 	cmdOutString, err := runCommand(profile, command)
-// 	if err != nil {
-// 		fmt.Println(err)
-// 	}
-// 	fmt.Println(cmdOutString)
-// 	results <- cmdOutString
-// }
-
 func runCommand(profile string, command []string) string {
 	statement := append([]string{"--profile", profile}, command...)
 	cmd := exec.Command("aws", statement...)
 
-	var cmdOut bytes.Buffer
-	cmd.Stdout = &cmdOut
-	cmd.Stderr = os.Stderr
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout // Capturing standard output
+	cmd.Stderr = &stderr // Capturing standard error
 
-	fmt.Println(cmd.Err)
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("Profile: %s%s", profile, stderr.String())
+	}
 
-	cmdOutString := cmdOut.String()
-	return cmdOutString
+	return stdout.String()
 }
 
-func workerChannels(wg *sync.WaitGroup, ch chan<- Data, profile string, command []string) {
+func workerChannels(wg *sync.WaitGroup, ch chan<- Data, profile string, argCommand []string) {
 	defer wg.Done() // Decrement the WaitGroup counter when done
 
 	var wgCommands sync.WaitGroup
@@ -100,33 +95,36 @@ func workerChannels(wg *sync.WaitGroup, ch chan<- Data, profile string, command 
 	// Start goroutines that do some work
 	for i := 0; i < 1; i++ {
 		accountChan := make(chan int)
-
-		// Create a Message struct with the data and sender identifier
 		go func() {
 			defer wgCommands.Done() // Decrement the inner WaitGroup counter when done
-			profileCmd := []string{"sts", "get-caller-identity"}
-			result := runCommand(profile, profileCmd)
+			acctIdCmd := []string{"sts", "get-caller-identity"}
+			acctIdResult := runCommand(profile, acctIdCmd)
 
-			var env Results
-			buf := []byte(result)
-			if err := json.Unmarshal(buf, &env); err != nil {
-				log.Fatal(err)
-			}
-			account := 123
+			// Decalre empty interface
+			var acctIdResultMap map[string]interface{}
 
-			// var resultMap map[string]any
-			// var resultMap map[string]interface{}
-			// json.Unmarshal([]byte(result), &resultMap)
-			// account, _ := extractString(data, "person.address.city")
-			// var acctString any
-			// acctString = resultMap["Account"]
-			// account, _ := strconv.Atoi(acctString)
-			accountChan <- account
+			// Unmarshal or Decode into interface
+			json.Unmarshal([]byte(acctIdResult), &acctIdResultMap)
+
+			// Get int for Account ID to pass to return cannel
+			acctId, _ := strconv.Atoi(acctIdResultMap["Account"].(string))
+			accountChan <- acctId
 		}()
 
 		resultsChan := make(chan string)
 		go func() {
 			defer wgCommands.Done()
+			results := runCommand(profile, argCommand)
+
+			// Decalre empty interface
+			var result map[string]interface{}
+
+			// Unmarshal or Decode into interface
+			json.Unmarshal([]byte(results), &result)
+
+			// Get int for Account ID to pass to return cannel
+			acctId, _ := strconv.Atoi(result["Account"].(string))
+
 			resultsChan <- "done"
 		}()
 
