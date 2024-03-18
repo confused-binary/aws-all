@@ -16,12 +16,7 @@ import (
 type Data struct {
 	Profile string
 	Account int
-	// Command []string
-	Results string
-}
-
-type Results struct {
-	Details string
+	Results map[string]interface{}
 }
 
 func checkRequirements() string {
@@ -67,7 +62,7 @@ func getProfileNames(profileRegex string) []string {
 	return validProfiles
 }
 
-func runCommand(profile string, command []string) string {
+func runCommand(profile string, command []string) map[string]interface{} {
 	statement := append([]string{"--profile", profile}, command...)
 	cmd := exec.Command("aws", statement...)
 
@@ -81,51 +76,47 @@ func runCommand(profile string, command []string) string {
 		log.Fatalf("Profile: %s%s", profile, stderr.String())
 	}
 
-	return stdout.String()
+	// Decalre empty interface
+	var resultsMap map[string]interface{}
+
+	// Unmarshal or Decode into interface
+	json.Unmarshal(stdout.Bytes(), &resultsMap)
+
+	return resultsMap
 }
 
 func workerChannels(wg *sync.WaitGroup, ch chan<- Data, profile string, argCommand []string) {
-	defer wg.Done() // Decrement the WaitGroup counter when done
-
 	var wgCommands sync.WaitGroup
+	accountChan := make(chan int)
+	resultsChan := make(chan map[string]interface{})
 
 	// Adding 1 to the inner WaitGroup counter
 	wgCommands.Add(2)
 
 	// Start goroutines that do some work
 	for i := 0; i < 1; i++ {
-		accountChan := make(chan int)
 		go func() {
-			defer wgCommands.Done() // Decrement the inner WaitGroup counter when done
+			// Run Command
 			acctIdCmd := []string{"sts", "get-caller-identity"}
-			acctIdResult := runCommand(profile, acctIdCmd)
-
-			// Decalre empty interface
-			var acctIdResultMap map[string]interface{}
-
-			// Unmarshal or Decode into interface
-			json.Unmarshal([]byte(acctIdResult), &acctIdResultMap)
+			resultsMap := runCommand(profile, acctIdCmd)
 
 			// Get int for Account ID to pass to return cannel
-			acctId, _ := strconv.Atoi(acctIdResultMap["Account"].(string))
+			acctId, _ := strconv.Atoi(resultsMap["Account"].(string))
 			accountChan <- acctId
+
+			// Decrement the inner WaitGroup counter when done
+			defer wgCommands.Done()
 		}()
 
-		resultsChan := make(chan string)
 		go func() {
-			defer wgCommands.Done()
-			results := runCommand(profile, argCommand)
-
-			// Decalre empty interface
-			var result map[string]interface{}
-
-			// Unmarshal or Decode into interface
-			json.Unmarshal([]byte(results), &result)
+			// Run Command
+			resultsMap := runCommand(profile, argCommand)
 
 			// Get int for Account ID to pass to return cannel
-			acctId, _ := strconv.Atoi(result["Account"].(string))
+			resultsChan <- resultsMap
 
-			resultsChan <- "done"
+			// Decrement the inner WaitGroup counter when done
+			defer wgCommands.Done()
 		}()
 
 		// Send the Message through the channel
@@ -135,6 +126,9 @@ func workerChannels(wg *sync.WaitGroup, ch chan<- Data, profile string, argComma
 			Results: <-resultsChan,
 		}
 	}
+
+	// Decrement the WaitGroup counter when done
+	defer wg.Done()
 }
 
 func main() {
@@ -162,48 +156,16 @@ func main() {
 	}
 
 	// Start a goroutine to receive and handle data from the channel
+	var totalData []Data
 	go func() {
-		defer wg.Done() // Decrement the WaitGroup counter when done
 		for i := 0; i < len(validProfiles); i++ {
-			data := <-ch
-			fmt.Printf("Received data from sender %s: %v\n", data.Profile, data.Account)
-			fmt.Printf("Results: %s\n", data.Results)
+			totalData = append(totalData, <-ch)
 		}
 	}()
 
 	// Wait for all goroutines to finish
 	wg.Wait()
 
-	// // Setup waitgroups
-	// var wg sync.WaitGroup
-
-	// // Setup channels for concurrency
-	// results := make(chan string, len(validProfiles))
-
-	// // Get Account number
-	// for n, profile := range validProfiles {
-	// 	wg.add(n)
-
-	// }
-
-	// // Pass commands to worker funciton
-	// for n, profile := range validProfiles {
-	// 	wg.Add(n)
-	// 	profile := profile
-	// 	go func() {
-	// 		defer wg.Done()
-	// 		data := dataStorage{
-	// 			Account: ,
-	// 		}
-	// 		worker(profile, argCommand, results)
-	// 	}()
-	// }
-	// wg.Wait()
-
-	// // Get results
-	// for i := 1; i <= len(validProfiles); i++ {
-	// 	<-results
-	// }
-
-	fmt.Println("It's done!")
+	b, _ := json.MarshalIndent(&totalData, "", "    ")
+	fmt.Println(string(b))
 }
