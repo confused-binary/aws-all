@@ -30,9 +30,9 @@ func checkRequirements() string {
 		log.Fatal("No command provided - I need to know what to run...")
 	}
 
-	profileRegex, present := os.LookupEnv("AWS_ALL_PROFILES")
+	profileRegex, present := os.LookupEnv("AWS_ALL")
 	if !present {
-		log.Fatal("\"AWS_ALL_PROFILES\" environment variable needs to be set so I know which profiles to run against")
+		log.Fatal("\"AWS_ALL\" environment variable needs to be set so I know which profiles to run against")
 	}
 
 	return profileRegex
