@@ -87,7 +87,7 @@ async def enrich_data(profile, prof_accts, command):
     regions = []
     count = 0
     for part in check_commands:
-        if part == "--region":
+        if part == "--region" or part == "--regions":
             regions.append(check_commands[count+1])
             check_commands.pop(count)
             check_commands.pop(count)
